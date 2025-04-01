@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Header from "@/components/Header";
 import PurchaseList from "@/components/PurchaseList";
 import MonthlyTotalCard from "@/components/MonthlyTotalCard";
@@ -9,6 +9,7 @@ import PurchaseFormDialog from "@/components/PurchaseFormDialog";
 import PurchaseDetailsDialog from "@/components/PurchaseDetailsDialog";
 import SettingsDialog from "@/components/SettingsDialog";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { usePurchases } from "@/lib/usePurchases";
 
 export default function Home() {
   // State for dialogs
@@ -25,43 +26,33 @@ export default function Home() {
     new Date().toISOString().slice(0, 7),
   );
 
-  // Mock data for purchases
-  const [purchases, setPurchases] = useState([
-    {
-      id: "1",
-      name: "Smart TV 55 polegadas",
-      totalValue: 3500,
-      installmentValue: 291.67,
-      totalInstallments: 12,
-      paidInstallments: 3,
-      purchaseDate: "2023-10-15",
-    },
-    {
-      id: "2",
-      name: "iPhone 15 Pro",
-      totalValue: 7999,
-      installmentValue: 666.58,
-      totalInstallments: 12,
-      paidInstallments: 1,
-      purchaseDate: "2023-11-05",
-    },
-    {
-      id: "3",
-      name: "Geladeira Frost Free",
-      totalValue: 4200,
-      installmentValue: 350,
-      totalInstallments: 12,
-      paidInstallments: 6,
-      purchaseDate: "2023-08-20",
-    },
-  ]);
+  // Use the custom hook to manage purchases
+  const {
+    purchases,
+    loading,
+    error,
+    addPurchase,
+    updatePurchase,
+    deletePurchase,
+    markNextInstallmentPaid,
+    fetchInstallments,
+  } = usePurchases();
+
+  // State for installments of the selected purchase
+  const [selectedPurchaseInstallments, setSelectedPurchaseInstallments] =
+    useState<any[]>([]);
 
   // Handlers for dialogs
   const handleOpenSettings = () => setIsSettingsOpen(true);
   const handleOpenPurchaseForm = () => setIsPurchaseFormOpen(true);
 
-  const handleViewPurchaseDetails = (id: string) => {
+  const handleViewPurchaseDetails = async (id: string) => {
     setSelectedPurchaseId(id);
+
+    // Fetch installments for this purchase
+    const installments = await fetchInstallments(id);
+    setSelectedPurchaseInstallments(installments);
+
     setIsPurchaseDetailsOpen(true);
   };
 
@@ -75,31 +66,18 @@ export default function Home() {
     setIsConfirmDeleteOpen(true);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (selectedPurchaseId) {
-      // Filter out the deleted purchase
-      setPurchases(purchases.filter((p) => p.id !== selectedPurchaseId));
-      setIsConfirmDeleteOpen(false);
-      setSelectedPurchaseId(null);
+      const success = await deletePurchase(selectedPurchaseId);
+      if (success) {
+        setIsConfirmDeleteOpen(false);
+        setSelectedPurchaseId(null);
+      }
     }
   };
 
-  const handleMarkPaid = (id: string) => {
-    // Update the paid installments count
-    setPurchases(
-      purchases.map((purchase) => {
-        if (
-          purchase.id === id &&
-          purchase.paidInstallments < purchase.totalInstallments
-        ) {
-          return {
-            ...purchase,
-            paidInstallments: purchase.paidInstallments + 1,
-          };
-        }
-        return purchase;
-      }),
-    );
+  const handleMarkPaid = async (id: string) => {
+    await markNextInstallmentPaid(id);
   };
 
   const handleMonthChange = (month: string) => {
@@ -138,24 +116,97 @@ export default function Home() {
         installments: selectedPurchase.totalInstallments,
         installmentValue: selectedPurchase.installmentValue,
         purchaseDate: new Date(selectedPurchase.purchaseDate),
-        installmentsList: Array.from(
-          { length: selectedPurchase.totalInstallments },
-          (_, i) => {
-            // Create a date for each installment (one month apart)
-            const purchaseDate = new Date(selectedPurchase.purchaseDate);
-            const dueDate = new Date(purchaseDate);
-            dueDate.setMonth(purchaseDate.getMonth() + i);
+        installmentsList:
+          selectedPurchaseInstallments.length > 0
+            ? selectedPurchaseInstallments.map((inst) => ({
+                number: inst.number,
+                value: inst.value,
+                dueDate: new Date(inst.dueDate),
+                paid: inst.paid,
+              }))
+            : Array.from(
+                { length: selectedPurchase.totalInstallments },
+                (_, i) => {
+                  // Create a date for each installment (one month apart)
+                  const purchaseDate = new Date(selectedPurchase.purchaseDate);
+                  const dueDate = new Date(purchaseDate);
+                  dueDate.setMonth(purchaseDate.getMonth() + i);
 
-            return {
-              number: i + 1,
-              value: selectedPurchase.installmentValue,
-              dueDate,
-              paid: i < selectedPurchase.paidInstallments,
-            };
-          },
-        ),
+                  return {
+                    number: i + 1,
+                    value: selectedPurchase.installmentValue,
+                    dueDate,
+                    paid: i < selectedPurchase.paidInstallments,
+                  };
+                },
+              ),
       }
     : undefined;
+
+  // Handle form submission for adding/editing purchases
+  const handleFormSubmit = async (data: any) => {
+    try {
+      // Calculate installment value
+      const installmentValue =
+        parseFloat(data.totalValue) / parseInt(data.installments);
+
+      if (selectedPurchaseId) {
+        // Update existing purchase
+        await updatePurchase(selectedPurchaseId, {
+          name: data.name,
+          totalValue: parseFloat(data.totalValue),
+          installmentValue,
+          totalInstallments: parseInt(data.installments),
+          purchaseDate: data.purchaseDate.toISOString().split("T")[0],
+        });
+      } else {
+        // Add new purchase
+        await addPurchase({
+          name: data.name,
+          totalValue: parseFloat(data.totalValue),
+          installmentValue,
+          totalInstallments: parseInt(data.installments),
+          paidInstallments: 0,
+          purchaseDate: data.purchaseDate.toISOString().split("T")[0],
+        });
+      }
+
+      setIsPurchaseFormOpen(false);
+      setSelectedPurchaseId(null);
+    } catch (err) {
+      console.error("Error submitting form:", err);
+    }
+  };
+
+  // Handle marking an installment as paid in the details dialog
+  const handleMarkInstallmentPaid = async (
+    purchaseId: string,
+    installmentNumber: number,
+  ) => {
+    try {
+      // Get the current purchase
+      const purchase = purchases.find((p) => p.id === purchaseId);
+      if (!purchase) return;
+
+      // Find the installment in our local state
+      const installment = selectedPurchaseInstallments.find(
+        (i) => i.number === installmentNumber,
+      );
+      if (!installment) return;
+
+      // Toggle the paid status
+      const newPaidStatus = !installment.paid;
+
+      // Update in Supabase
+      await markNextInstallmentPaid(purchaseId);
+
+      // Refresh installments
+      const updatedInstallments = await fetchInstallments(purchaseId);
+      setSelectedPurchaseInstallments(updatedInstallments);
+    } catch (err) {
+      console.error("Error marking installment as paid:", err);
+    }
+  };
 
   return (
     <main className="flex min-h-screen flex-col bg-gray-50 dark:bg-slate-900">
@@ -166,17 +217,25 @@ export default function Home() {
       />
 
       <div className="container mx-auto px-4 py-6 space-y-6">
-        <MonthlyTotalCard month={displayMonth} totalAmount={monthlyTotal} />
+        {loading ? (
+          <div className="text-center py-8">Carregando compras...</div>
+        ) : error ? (
+          <div className="text-center py-8 text-red-500">{error}</div>
+        ) : (
+          <>
+            <MonthlyTotalCard month={displayMonth} totalAmount={monthlyTotal} />
 
-        <PurchaseList
-          purchases={purchases}
-          selectedMonth={displayMonth}
-          onViewDetails={handleViewPurchaseDetails}
-          onEdit={handleEditPurchase}
-          onDelete={handleDeletePurchase}
-          onMarkPaid={handleMarkPaid}
-          onAddPurchase={handleOpenPurchaseForm}
-        />
+            <PurchaseList
+              purchases={purchases}
+              selectedMonth={displayMonth}
+              onViewDetails={handleViewPurchaseDetails}
+              onEdit={handleEditPurchase}
+              onDelete={handleDeletePurchase}
+              onMarkPaid={handleMarkPaid}
+              onAddPurchase={handleOpenPurchaseForm}
+            />
+          </>
+        )}
       </div>
 
       {/* Floating action button */}
@@ -186,11 +245,17 @@ export default function Home() {
       <PurchaseFormDialog
         open={isPurchaseFormOpen}
         onOpenChange={setIsPurchaseFormOpen}
-        onSubmit={(data) => {
-          // In a real app, this would add or update a purchase
-          console.log("Form submitted:", data);
-          setIsPurchaseFormOpen(false);
-        }}
+        onSubmit={handleFormSubmit}
+        initialData={
+          selectedPurchaseId && selectedPurchase
+            ? {
+                name: selectedPurchase.name,
+                totalValue: selectedPurchase.totalValue.toString(),
+                installments: selectedPurchase.totalInstallments.toString(),
+                purchaseDate: new Date(selectedPurchase.purchaseDate),
+              }
+            : undefined
+        }
         mode={selectedPurchaseId ? "edit" : "add"}
       />
 
@@ -198,12 +263,7 @@ export default function Home() {
         open={isPurchaseDetailsOpen}
         onOpenChange={setIsPurchaseDetailsOpen}
         purchase={purchaseForDetails}
-        onMarkAsPaid={(purchaseId, installmentNumber) => {
-          // In a real app, this would mark a specific installment as paid
-          console.log(
-            `Marking installment ${installmentNumber} as paid for purchase ${purchaseId}`,
-          );
-        }}
+        onMarkAsPaid={handleMarkInstallmentPaid}
         onClose={() => setIsPurchaseDetailsOpen(false)}
       />
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { CalendarIcon } from "lucide-react";
 import { format } from "date-fns";
@@ -60,15 +60,30 @@ export default function PurchaseFormDialog({
   mode = "add",
 }: PurchaseFormDialogProps) {
   const [date, setDate] = useState<Date | undefined>(initialData.purchaseDate);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<PurchaseFormValues>({
     defaultValues: initialData,
   });
 
-  const handleSubmit = (data: PurchaseFormValues) => {
-    onSubmit(data);
-    onOpenChange(false);
-    form.reset();
+  // Reset form when initialData changes (e.g., when editing a different purchase)
+  useEffect(() => {
+    if (open) {
+      form.reset(initialData);
+    }
+  }, [form, initialData, open]);
+
+  const handleSubmit = async (data: PurchaseFormValues) => {
+    try {
+      setIsSubmitting(true);
+      await onSubmit(data);
+      onOpenChange(false);
+      form.reset();
+    } catch (error) {
+      console.error("Error submitting form:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -196,11 +211,16 @@ export default function PurchaseFormDialog({
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
+                disabled={isSubmitting}
               >
                 Cancelar
               </Button>
-              <Button type="submit">
-                {mode === "add" ? "Adicionar" : "Salvar"}
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting
+                  ? "Salvando..."
+                  : mode === "add"
+                    ? "Adicionar"
+                    : "Salvar"}
               </Button>
             </DialogFooter>
           </form>

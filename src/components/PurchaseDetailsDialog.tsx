@@ -85,6 +85,7 @@ const PurchaseDetailsDialog = ({
       installmentsList: updatedInstallments,
     });
 
+    // Call the parent component's handler to update in Supabase
     onMarkAsPaid(localPurchase.id, installmentNumber);
   };
 
