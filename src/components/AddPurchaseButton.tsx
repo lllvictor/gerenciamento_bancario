@@ -3,7 +3,8 @@
 import React, { useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "./ui/button";
-import { Dialog } from "./ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import PurchaseFormDialog from "./PurchaseFormDialog";
 
 interface AddPurchaseButtonProps {
   onPurchaseAdded?: () => void;
@@ -22,9 +23,10 @@ const AddPurchaseButton = ({
     setIsFormOpen(false);
   };
 
-  const handlePurchaseSaved = () => {
+  const handlePurchaseSaved = (data: any) => {
     handleCloseForm();
     onPurchaseAdded();
+    console.log("Purchase saved:", data);
   };
 
   return (
@@ -37,10 +39,12 @@ const AddPurchaseButton = ({
         <Plus className="h-6 w-6" />
       </Button>
 
-      {/* We'll implement a simple dialog here instead of importing PurchaseFormDialog */}
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        {/* Dialog content will be implemented in PurchaseFormDialog component */}
-      </Dialog>
+      <PurchaseFormDialog
+        open={isFormOpen}
+        onOpenChange={setIsFormOpen}
+        onSubmit={handlePurchaseSaved}
+        mode="add"
+      />
     </>
   );
 };
